@@ -62,6 +62,8 @@ bash start.sh sk-ant-...
 
 Leave this terminal running — it hosts the agents and prints progress as each turn completes. Do not close it.
 
+![Terminal 1 — services starting](assets/start-script-console.png)
+
 **4. In your second terminal, navigate to the project folder and run the negotiation:**
 
 ```bash
@@ -69,6 +71,14 @@ python run_demo.py
 ```
 
 This sends your idea to the orchestrator and waits. When all turns are complete, the full transcript is printed here and written to `transcript.md` in the project root.
+
+![Terminal 2 — negotiation output](assets/demo-py.png)
+
+Once the negotiation is underway, switch back to your first terminal to watch the agents respond turn by turn. Each line shows which agent is thinking and how long its response was.
+
+![App running — Terminal 1 progress](assets/running.png)
+
+To stop the demo at any point, press **Ctrl+C** in the first terminal. This will shut down all three services cleanly.
 
 ## How it works
 

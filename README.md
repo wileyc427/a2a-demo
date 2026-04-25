@@ -1,164 +1,118 @@
-# A2A Demo — Tech Brief Pipeline
+# A2A Demo — Solar Project Negotiation Pipeline
 
-A multi-agent demo using the [A2A SDK](https://github.com/google-a2a/a2a-python) and [Tracentic](../tracentic) for distributed tracing. Three specialist agents collaborate to produce structured tech briefs, with every inter-agent call captured as a trace tree in the Tracentic dashboard.
+A multi-agent demo using the [A2A SDK](https://github.com/google-a2a/a2a-python). A Solar Developer and an Underwriter negotiate a utility-scale solar project across multiple turns, communicating as real professionals would.
 
 ## What it does
 
-Given a technology topic, the pipeline:
-
-1. **Trend Analyzer** (port 8001) — classifies the trend, rates momentum, identifies adoption stage
-2. **Impact Assessor** (port 8002) — evaluates business impact across industry verticals *(runs concurrently with step 1)*
-3. **Report Writer** (port 8003) — synthesises both outputs into a structured tech brief
-
-The **Orchestrator** (port 8080) drives the workflow. All spans are collected by Tracentic and visualised as a trace tree.
+Given a solar development idea, the pipeline runs a dynamic multi-turn negotiation (up to 10 turns). The orchestrator alternates between agents, passing the conversation history each time. The negotiation ends early when either agent signals agreement or a definitive outcome.
 
 ```
-Tech Brief Orchestrator          depth 0
-  ├── Trend Analyzer             depth 1  (fan-out)
-  ├── Impact Assessor            depth 1  (fan-out)
-  └── Report Writer              depth 1  (sequential)
+Solar Negotiation Orchestrator    (pipeline root — sequential, max 10 turns)
+  ├── Solar Developer             port 8001
+  └── Underwriter                 port 8002
 ```
 
 ## Prerequisites
 
-- Python 3.10+
-- Tracentic Python SDK installed from source (see below)
-- Tracentic backend running and accessible
+- Python 3.10+ — check with `python3 --version`
+- An Anthropic API key
 
-## Setup
+## Quickstart
 
-### 1. Install the Tracentic SDK from source
+**1. Write your project idea to `prompt.md`:**
 
-The demo depends on `tracentic.integrations.a2a` which is built from the SDK source:
-
-```bash
-pip install ../tracentic/tracentic-python/
+```
+prompt.md
+─────────
+150MW solar farm on brownfield land in West Texas
 ```
 
-### 2. Install demo dependencies
+**2. Start all services** (Terminal 1):
 
 ```bash
-pip install -r requirements.txt
+bash start.sh sk-ant-...
 ```
 
-### 3. Start the Tracentic backend
-
-The orchestrator and agents send traces to `http://localhost:4000` by default. Start the Tracentic Cloud app before running the demo:
-
-```bash
-cd ../tracentic/tracentic-cloud/src/Tracentic.Cloud.Api
-dotnet run
-```
-
-If your Tracentic backend is on a different URL or port, set the environment variable:
-
-```bash
-export TRACENTIC_URL=http://localhost:5169
-```
-
-## Running the demo
-
-Open four terminal tabs and start each service:
-
-```bash
-# Terminal 1 — Orchestrator
-PYTHONPATH=. python orchestrator/main.py
-
-# Terminal 2 — Trend Analyzer
-PYTHONPATH=. python agents/trend_analyzer/main.py
-
-# Terminal 3 — Impact Assessor
-PYTHONPATH=. python agents/impact_assessor/main.py
-
-# Terminal 4 — Report Writer
-PYTHONPATH=. python agents/report_writer/main.py
-```
-
-Once all four are running, fire the demo pipeline:
+**3. Run the negotiation** (Terminal 2):
 
 ```bash
 python run_demo.py
 ```
 
-This sends 4 topics through the full pipeline across 2 rounds (8 total pipeline runs).
+Progress is logged in Terminal 1 as each agent responds. Once all turns are complete, the full transcript is written to `transcript.md` in the project root.
 
-### Options
-
-```
-python run_demo.py --url http://localhost:8080  # orchestrator URL (default)
-python run_demo.py --loops 3                   # number of rounds (default: 2)
-```
-
-## Seeing the output
-
-### Terminal output
-
-```
-Waiting for orchestrator at http://localhost:8080...
-Orchestrator is ready.
-
-Round 1/2
-  → Agentic AI frameworks for enterprise automation
-    trace=a1b2c3d4  ✓
-  → Real-time AI inference at the edge
-    trace=e5f6g7h8  ✓
-  → Multi-modal foundation models in healthcare
-    trace=i9j0k1l2  ✓
-  → Retrieval-augmented generation for knowledge management
-    trace=m3n4o5p6  ✓
-...
-
-Done. Open http://localhost:4000 to explore the traces.
-```
-
-### Tracentic dashboard
-
-Open [http://localhost:4000](http://localhost:4000) to explore each trace. For every pipeline run you'll see:
-
-- **Trace tree** — orchestrator root with three child spans, timing at each depth
-- **Agent Cards** — capability snapshots for each agent
-- **Delegated Agents** — topology view from the orchestrator's perspective
-- **Token usage & cost** — per-model token counts and cost estimates
-- **Output artifacts** — the generated `tech-brief.md` metadata from the Report Writer
-- **State transitions** — `submitted → working → completed` lifecycle for each span
-
-### Direct API
-
-You can also call the orchestrator directly:
+## Option B — Docker
 
 ```bash
-curl -X POST http://localhost:8080/run \
-  -H "Content-Type: application/json" \
-  -d '{"topic": "Quantum computing for cryptography"}'
+ANTHROPIC_API_KEY=sk-ant-... docker compose up --build
 ```
 
-Response:
+Then run the demo as usual in another terminal:
 
-```json
-{
-  "trace_id": "550e8400-e29b-41d4-a716-446655440000",
-  "report": "# Tech Brief: Quantum computing for cryptography\n\n..."
-}
+```bash
+python run_demo.py
 ```
 
-## Environment variables
+## How it works
 
-| Variable | Default | Description |
-|---|---|---|
-| `TRACENTIC_URL` | `http://localhost:4000` | Tracentic backend for trace collection and dashboard |
-| `TREND_ANALYZER_URL` | `http://localhost:8001` | Trend Analyzer agent URL |
-| `IMPACT_ASSESSOR_URL` | `http://localhost:8002` | Impact Assessor agent URL |
-| `REPORT_WRITER_URL` | `http://localhost:8003` | Report Writer agent URL |
+Each agent uses `claude-haiku-4-5`. The orchestrator passes the conversation history and a `[TURN:N of 10]` marker with each call so the model knows its position. When either agent judges the negotiation complete, it appends `[NEGOTIATION_COMPLETE]` to stop the loop early.
+
+## How the orchestrator works
+
+The orchestrator is the coordinator — it doesn't have opinions or generate responses itself, it just manages the conversation flow between the two agents.
+
+Importantly, the orchestrator is **your code**. It lives in your codebase, you control it, and you decide the rules: which agents to call, in what order, how many turns to allow, and what to do with the results. **The agents themselves, however, can be owned and operated by anyone — they could be services you built, services a partner built, or third-party APIs exposed over the network.** Your orchestrator doesn't need to know or care how an agent works internally; it just sends a message and gets a response back.**For this example, the orchestrator and agents are all owned by one app, but again, this wouldn't be the case, necessarily, in a real scenario.**
+
+Finally, even though all agents are managed by this demo, they all run on their own ports and act as true, individual agents.
+
+When you submit an idea, the orchestrator:
+
+1. Sends the idea to the Solar Developer and waits for a response
+2. Takes that response and passes it — along with the original idea — to the Underwriter
+3. Takes the Underwriter's response and passes the full conversation so far back to the Solar Developer
+4. Keeps alternating like this, adding each new response to the history, until either agent ends the negotiation or 10 turns are reached
+
+Each message sent to an agent includes everything said so far, plus a turn counter (`[TURN:1 of 10]`, `[TURN:2 of 10]`, etc.) so the agent knows how far into the negotiation it is. When an agent decides the negotiation is complete, it includes a `[NEGOTIATION_COMPLETE]` signal in its response and the orchestrator stops the loop.
+
+## What's actually happening
+
+You write down a solar project idea — say, "150MW solar farm on brownfield land in West Texas." From there, two AI agents take over and have a real back-and-forth conversation about it.
+
+The first agent plays the role of a solar project developer. It reads your idea and responds the way an experienced developer would: proposing a specific project with a site, a capacity, a cost estimate, a timeline, and a plan for getting a power purchase agreement signed.
+
+The second agent plays the role of a bank underwriter — the person at a lender who decides whether to finance a project. It reads the developer's proposal and responds the way a real credit professional would: asking hard questions about offtake contracts, interconnection costs, debt coverage ratios, and environmental studies.
+
+The developer then responds to those concerns. The underwriter reviews the answers and either raises more issues or moves toward a conditional approval with financing terms. This goes back and forth — up to 10 rounds — until both sides reach an agreed deal or one side walks away.
+
+Neither agent knows the other's responses in advance. Each one only sees what has been said so far and decides what to say next on its own. The conversation is capped at 10 turns total — if the agents haven't reached a conclusion by then, the negotiation stops automatically. In practice it usually wraps up sooner, because once a deal is agreed both agents signal that they're done and the conversation ends early. When it's over, the full exchange is saved to `transcript.md` so you can read it from start to finish.
+
+## Navigating the project
+
+If you're not a developer, here's what you actually need to care about — and what you can safely ignore.
+
+**The two files you interact with:**
+
+- `prompt.md` — this is where you write your idea. One or two sentences describing the solar project is enough. Change it between runs to try different scenarios.
+- `transcript.md` — this is where the output goes. Open it after a run to read the full conversation between the two agents.
+
+**The two files that control how the agents behave:**
+
+- `agents/solar_developer/main.py` — contains the instructions given to the Solar Developer AI. Look for the `SYSTEM_PROMPT` block near the top. You can edit the text there to change how the developer personality behaves — more aggressive on leverage, more conservative on timelines, whatever you want.
+- `agents/underwriter/main.py` — same thing for the Underwriter. Edit `SYSTEM_PROMPT` to make the bank tougher, more flexible, focused on different risk factors, etc.
+
+**Everything else** — the orchestrator, `run_demo.py`, `start.sh`, `docker-compose.yml`, `requirements.txt` — is plumbing that makes the agents talk to each other. You don't need to touch any of it to run the demo or change how the agents behave.
 
 ## Project structure
 
 ```
-orchestrator/main.py          # Pipeline root (port 8080)
-agents/trend_analyzer/main.py # Trend analysis agent (port 8001)
-agents/impact_assessor/main.py# Business impact agent (port 8002)
-agents/report_writer/main.py  # Report synthesis agent (port 8003)
-shared/a2a_client.py          # Shared ObservableA2AClient wrapper
-run_demo.py                   # Demo runner CLI
-requirements.txt              # Python dependencies
-Dockerfile                    # Container build (context: tracentic repo root)
+prompt.md                          # Write your project idea here (you create this)
+transcript.md                      # Full negotiation transcript (written after each run)
+orchestrator/main.py               # Pipeline root — drives the negotiation loop
+agents/solar_developer/main.py     # Solar Developer agent (port 8001)
+agents/underwriter/main.py         # Underwriter agent (port 8002)
+run_demo.py                        # Demo runner CLI
+start.sh                           # Starts all services locally (accepts API key as $1)
+Dockerfile                         # Single image used by all three services
+docker-compose.yml                 # Runs all three services via Docker
+requirements.txt                   # Python dependencies
 ```

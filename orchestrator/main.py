@@ -1,179 +1,128 @@
 """
-Tech Brief Orchestrator
+Solar Project Negotiation Orchestrator
 
-Entry point for the pipeline. Receives a topic via HTTP, creates a root
-tracentic span, then fans out to Trend Analyzer and Impact Assessor
-concurrently before calling Report Writer to synthesise the results.
-
-The orchestrator is NOT an A2A agent itself — it is the pipeline root
-that drives the workflow and creates the top-level span manually. All
-three specialist agents use ObservableAgentExecutor and receive trace
-context injected into their A2A message metadata, automatically
-continuing the trace across process boundaries.
-
-Tree produced in the dashboard:
-
-  Tech Brief Orchestrator          depth 0   (manual span)
-    ├── Trend Analyzer             depth 1   (ObservableAgentExecutor, fan-out)
-    ├── Impact Assessor            depth 1   (ObservableAgentExecutor, fan-out)
-    └── Report Writer              depth 1   (ObservableAgentExecutor, sequential)
+Receives a solar development idea and facilitates a dynamic multi-turn
+professional negotiation between the Solar Developer and Underwriter agents.
+The loop runs until either agent signals [NEGOTIATION_COMPLETE] or MAX_TURNS
+is reached, whichever comes first.
 
 Endpoints:
-  POST /run    {"topic": "..."} → {"trace_id": "...", "report": "..."}
+  POST /run    {"idea": "..."} → {"request_id": "...", "transcript": "..."}
   GET  /health
 """
 from __future__ import annotations
 
 import os
+from uuid import uuid4
 
 import httpx
 import uvicorn
+from a2a.client.transports.jsonrpc import JsonRpcTransport
+from a2a.types import Message, MessageSendParams, Part, Role, Task, TextPart
+from a2a.utils import get_message_text
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from tracentic import RemoteCollector, configure, get_tracer
-from tracentic.integrations.a2a import ObservableA2AClient, A2AError
+SOLAR_DEVELOPER_URL = os.getenv("SOLAR_DEVELOPER_URL", "http://localhost:8001")
+UNDERWRITER_URL = os.getenv("UNDERWRITER_URL", "http://localhost:8002")
+MAX_TURNS = 10
 
-TRACENTIC_URL = os.getenv("TRACENTIC_URL", "http://localhost:4000")
-TREND_ANALYZER_URL = os.getenv("TREND_ANALYZER_URL", "http://localhost:8001")
-IMPACT_ASSESSOR_URL = os.getenv("IMPACT_ASSESSOR_URL", "http://localhost:8002")
-REPORT_WRITER_URL = os.getenv("REPORT_WRITER_URL", "http://localhost:8003")
-AGENT_HOST = os.getenv("AGENT_HOST", "localhost")  # overridden per container in docker-compose
+_http = httpx.AsyncClient(timeout=180.0)
 
-# Configure tracentic once at process startup. The orchestrator uses the same
-# RemoteCollector as the agents — all spans from all processes end up in the
-# same dashboard database, linked by trace_id.
-configure(
-    collector=RemoteCollector(TRACENTIC_URL),
-    custom_pricing={
-        "claude-haiku-4-5": (0.80, 4.00),    # $0.80 / 1M input, $4.00 / 1M output
-        "claude-sonnet-4-6": (3.00, 15.00),  # $3.00 / 1M input, $15.00 / 1M output
-    },
-)
-
-# Shared HTTP client for all outbound A2A calls. A single client instance
-# reuses connections across requests — important for low-latency fan-out.
-_http = httpx.AsyncClient(timeout=90.0)
-
-# ObservableA2AClient handles trace context propagation and fan-out automatically.
-# No need to pass parent_ctx or fan-out IDs manually in any call below.
-_client = ObservableA2AClient(_http)
+_AGENTS = [
+    ("Solar Developer", SOLAR_DEVELOPER_URL),
+    ("Underwriter", UNDERWRITER_URL),
+]
 
 
-async def run_pipeline(topic: str) -> tuple[str, str]:
-    """
-    Execute the full three-agent pipeline for a given topic.
-    Returns (trace_id, report_markdown).
-
-    Span structure:
-      1. Root span created here (depth 0)
-      2. Trend Analyzer + Impact Assessor called concurrently via fan-out (depth 1)
-      3. Report Writer called sequentially after both complete (depth 1)
-    """
-    tracer = get_tracer()
-
-    # ── Root span ────────────────────────────────────────────────────────────
-    # The orchestrator is not an A2A agent, so we create the root span manually.
-    # start_span() returns a Span in the "submitted" state. We immediately
-    # transition it to "working" and record it so the dashboard shows the
-    # pipeline as in-progress before the first agent call completes.
-    root = tracer.start_span(
-        agent_name="Tech Brief Orchestrator",
-        agent_url=f"http://{AGENT_HOST}:8080",
-        skill_id="orchestrate",
-        input_message={"topic": topic},
-        # agent_card_snapshot is shown in the Agent Card panel of the dashboard.
-        agent_card_snapshot={
-            "name": "Tech Brief Orchestrator",
-            "version": "1.0.0",
-            "description": (
-                "Drives the tech brief pipeline: fans out to Trend Analyzer and "
-                "Impact Assessor concurrently, then calls Report Writer to synthesise "
-                "their outputs into a structured brief."
-            ),
-            "defaultInputModes": ["text"],
-            "defaultOutputModes": ["text", "file"],
-            "skills": [
-                {
-                    "id": "orchestrate",
-                    "name": "Generate Tech Brief",
-                    "description": (
-                        "Accepts a technology topic and returns a full tech brief "
-                        "backed by trend analysis and business impact assessment."
-                    ),
-                    "tags": ["orchestration", "pipeline", "tech-brief"],
-                }
-            ],
-        },
+async def _call_agent(url: str, text: str) -> str:
+    transport = JsonRpcTransport(_http, url=url)
+    params = MessageSendParams(
+        message=Message(
+            role=Role.user,
+            parts=[Part(root=TextPart(text=text))],
+            message_id=str(uuid4()),
+        )
     )
-    root.record_state_transition("working")
-    await tracer.record(root)
+    result = await transport.send_message(params)
+    if isinstance(result, Task):
+        if result.status and result.status.message:
+            return get_message_text(result.status.message)
+        return ""
+    if isinstance(result, Message):
+        return get_message_text(result)
+    return str(result)
 
-    # set_context() writes the root span into the current asyncio task's context var.
-    # ObservableA2AClient reads this automatically on every send() / fan_out() call —
-    # no need to pass parent context explicitly anywhere below.
-    tracer.set_context(root)
 
-    # delegated_agents is shown in the "Delegated Agents" panel of the dashboard,
-    # giving a high-level view of the pipeline topology from the orchestrator's span.
-    root.delegated_agents = [
-        {"name": "Trend Analyzer", "url": TREND_ANALYZER_URL, "version": "1.0.0"},
-        {"name": "Impact Assessor", "url": IMPACT_ASSESSOR_URL, "version": "1.0.0"},
-        {"name": "Report Writer", "url": REPORT_WRITER_URL, "version": "1.0.0"},
+def _build_message(idea: str, turns: list[tuple[str, str]], turn_num: int, agent_name: str) -> str:
+    parts = [
+        f"[TURN:{turn_num} of {MAX_TURNS}]",
+        f"PROJECT IDEA: {idea}",
+        "",
     ]
 
-    try:
-        # ── Stage 1: Fan-out ─────────────────────────────────────────────────────
-        # fan_out() fires both calls concurrently and links them as parallel siblings
-        # in the dashboard. Each A2AResponse includes duration_ms — the client-side
-        # wall-clock time for that individual agent call.
-        trend_resp, impact_resp = await _client.fan_out([
-            (TREND_ANALYZER_URL, topic),
-            (IMPACT_ASSESSOR_URL, topic),
-        ])
+    if turns:
+        parts.append("CONVERSATION HISTORY:")
+        parts.append("")
+        for i, (speaker, content) in enumerate(turns):
+            excerpt = content[:600] + "…" if len(content) > 600 else content
+            parts.append(f"[Exchange {i + 1} — {speaker}]:")
+            parts.append(excerpt)
+            parts.append("")
 
-        # ── Stage 2: Sequential synthesis ────────────────────────────────────────
-        # Pass structured data to Report Writer — no string serialisation round-trip.
-        # The receiving agent reads the data part directly as a dict.
-        report_resp = await _client.send(REPORT_WRITER_URL, {
-            "topic": topic,
-            "trend_analysis": trend_resp.data or str(trend_resp),
-            "impact_assessment": impact_resp.data or str(impact_resp),
-        })
+    parts.append(
+        f"You are responding as the {agent_name}. "
+        f"This is turn {turn_num + 1} of a maximum {MAX_TURNS} turns. "
+        f"When the negotiation reaches a natural conclusion (deal agreed or definitively rejected), "
+        f"include [NEGOTIATION_COMPLETE] on its own line at the very end of your response."
+    )
 
-        # ── Close root span ──────────────────────────────────────────────────────
-        # Record per-agent client-side timing from the fan-out alongside the
-        # completion message. duration_ms is not a content field so it is never
-        # stripped by the serialiser — pure operational signal, no PII risk.
-        root.output_messages = [
-            {"agent": "Trend Analyzer",  "duration_ms": trend_resp.duration_ms},
-            {"agent": "Impact Assessor", "duration_ms": impact_resp.duration_ms},
-            {"role": "assistant", "text": f"Tech brief complete for: {topic}"},
-        ]
-        root.record_state_transition("completed")
-        root.close()
-        await tracer.record(root)
+    return "\n".join(parts)
 
-        return root.trace_id, str(report_resp)
 
-    except A2AError as exc:
-        # A2A protocol error — agent returned a JSON-RPC error object.
-        # Use error_type="protocol" to distinguish from internal application errors.
-        root.error_type = "protocol"
-        root.error_message = f"[{exc.code}] {exc.message}"
-        root.record_state_transition("failed")
-        root.close()
-        await tracer.record(root)
-        raise
-    except Exception as exc:
-        root.error_type = "application"
-        root.error_message = str(exc)
-        root.record_state_transition("failed")
-        root.close()
-        await tracer.record(root)
-        raise
+def _format_transcript(idea: str, turns: list[tuple[str, str]]) -> str:
+    lines = [
+        "# Solar Project Negotiation Transcript",
+        "",
+        f"**Project Idea:** {idea}",
+        "",
+        "---",
+        "",
+    ]
+    for i, (speaker, content) in enumerate(turns):
+        lines.append(f"## [{speaker}] — Exchange {i + 1}")
+        lines.append("")
+        lines.append(content)
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+    return "\n".join(lines)
+
+
+async def run_negotiation(idea: str) -> tuple[str, str]:
+    request_id = str(uuid4())
+    turns: list[tuple[str, str]] = []
+
+    print(f"\n[Orchestrator] Starting negotiation: {idea[:80]}", flush=True)
+
+    for n in range(MAX_TURNS):
+        agent_name, agent_url = _AGENTS[n % 2]
+        print(f"[Orchestrator] Turn {n + 1}/{MAX_TURNS} → {agent_name}...", flush=True)
+        message = _build_message(idea, turns, n, agent_name)
+        response = await _call_agent(agent_url, message)
+        turns.append((agent_name, response))
+        print(f"[Orchestrator] Turn {n + 1}/{MAX_TURNS} ← {agent_name} ({len(response)} chars)", flush=True)
+
+        if "[NEGOTIATION_COMPLETE]" in response:
+            print(f"[Orchestrator] Negotiation complete after {n + 1} turns.", flush=True)
+            break
+    else:
+        print(f"[Orchestrator] Reached max turns ({MAX_TURNS}).", flush=True)
+
+    transcript = _format_transcript(idea, turns)
+    return request_id, transcript
 
 
 async def handle_run(request: Request) -> JSONResponse:
@@ -182,13 +131,13 @@ async def handle_run(request: Request) -> JSONResponse:
     except Exception:
         return JSONResponse({"error": "invalid JSON"}, status_code=400)
 
-    topic = (body.get("topic") or "").strip()
-    if not topic:
-        return JSONResponse({"error": "topic is required"}, status_code=400)
+    idea = (body.get("idea") or "").strip()
+    if not idea:
+        return JSONResponse({"error": "idea is required"}, status_code=400)
 
     try:
-        trace_id, report = await run_pipeline(topic)
-        return JSONResponse({"trace_id": trace_id, "report": report})
+        request_id, transcript = await run_negotiation(idea)
+        return JSONResponse({"request_id": request_id, "transcript": transcript})
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
@@ -205,6 +154,5 @@ app = Starlette(routes=[
 
 if __name__ == "__main__":
     port = 8080
-    print(f"[Tech Brief Orchestrator] Starting on port {port}", flush=True)
-    print(f"[Tech Brief Orchestrator] Tracentic dashboard: {TRACENTIC_URL}", flush=True)
+    print(f"[Solar Negotiation Orchestrator] Starting on port {port}", flush=True)
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")

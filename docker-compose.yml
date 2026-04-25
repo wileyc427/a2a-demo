@@ -1,0 +1,28 @@
+services:
+  solar-developer:
+    build: .
+    command: python agents/solar_developer/main.py
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    ports:
+      - "8001:8001"
+
+  underwriter:
+    build: .
+    command: python agents/underwriter/main.py
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    ports:
+      - "8002:8002"
+
+  orchestrator:
+    build: .
+    command: python orchestrator/main.py
+    environment:
+      SOLAR_DEVELOPER_URL: http://solar-developer:8001
+      UNDERWRITER_URL: http://underwriter:8002
+    ports:
+      - "8080:8080"
+    depends_on:
+      - solar-developer
+      - underwriter

@@ -18,7 +18,7 @@ Each demo run makes multiple API calls to Claude — one per turn, up to 10 turn
 
 ## Prerequisites
 
-- Python 3.10+ — check with `python3 --version`
+- Python 3.10+ — check with `python3 --version`. If you see `command not found` or a version below 3.10, download the latest installer from [python.org/downloads](https://www.python.org/downloads/), run it, and follow the prompts. Once installed, close and reopen your terminal and verify with `python3 --version` again.
 - An Anthropic API key — sign up at [console.anthropic.com](https://console.anthropic.com), then go to **API Keys** and click **Create Key**. Copy the key — it starts with `sk-ant-` and is only shown once.
 
 ## Getting the project

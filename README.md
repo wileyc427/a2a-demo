@@ -57,7 +57,7 @@ prompt.md
 **3. Open two terminal windows.** In the first terminal, navigate to the project folder and start all services:
 
 ```bash
-bash start.sh sk-ant-...
+./ start.sh sk-ant-...
 ```
 
 Leave this terminal running — it hosts the agents and prints progress as each turn completes. Do not close it.

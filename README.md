@@ -67,7 +67,7 @@ Leave this terminal running — it hosts the agents and prints progress as each 
 **4. In your second terminal, navigate to the project folder and run the negotiation:**
 
 ```bash
-python run_demo.py
+python3 run_demo.py
 ```
 
 This sends your idea to the orchestrator and waits. When all turns are complete, the full transcript is printed here and written to `transcript.md` in the project root.

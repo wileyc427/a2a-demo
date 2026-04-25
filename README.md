@@ -38,7 +38,15 @@ That's it — you're ready to run the demo.
 
 ## Quickstart
 
-**1. Write your project idea to `prompt.md`:**
+**1. Open a terminal and navigate to the project folder.** If you downloaded the ZIP, it will typically be in your Downloads folder:
+
+```bash
+cd ~/Downloads/a2a-demo-main
+```
+
+All commands below must be run from inside this folder.
+
+**2. Write your project idea to `prompt.md`:**
 
 ```
 prompt.md
@@ -46,7 +54,7 @@ prompt.md
 150MW solar farm on brownfield land in West Texas
 ```
 
-**2. Open two terminal windows.** In the first terminal, start all services:
+**3. Open two terminal windows.** In the first terminal, navigate to the project folder and start all services:
 
 ```bash
 bash start.sh sk-ant-...
@@ -54,25 +62,13 @@ bash start.sh sk-ant-...
 
 Leave this terminal running — it hosts the agents and prints progress as each turn completes. Do not close it.
 
-**3. In your second terminal, run the negotiation:**
+**4. In your second terminal, navigate to the project folder and run the negotiation:**
 
 ```bash
 python run_demo.py
 ```
 
 This sends your idea to the orchestrator and waits. When all turns are complete, the full transcript is printed here and written to `transcript.md` in the project root.
-
-## Option B — Docker
-
-```bash
-ANTHROPIC_API_KEY=sk-ant-... docker compose up --build
-```
-
-Then run the demo as usual in another terminal:
-
-```bash
-python run_demo.py
-```
 
 ## How it works
 

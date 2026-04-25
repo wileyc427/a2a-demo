@@ -21,6 +21,21 @@ Each demo run makes multiple API calls to Claude — one per turn, up to 10 turn
 - Python 3.10+ — check with `python3 --version`
 - An Anthropic API key — sign up at [console.anthropic.com](https://console.anthropic.com), then go to **API Keys** and click **Create Key**. Copy the key — it starts with `sk-ant-` and is only shown once.
 
+## Getting the project
+
+The easiest way is to download it as a ZIP file — no developer tools required:
+
+1. Go to the project page on GitHub
+2. Click the green **Code** button near the top right
+3. Click **Download ZIP**
+4. Unzip the downloaded file — this creates a folder called `a2a-demo` on your computer
+5. Open a terminal and navigate into that folder:
+   ```bash
+   cd ~/Downloads/a2a-demo-main
+   ```
+
+That's it — you're ready to run the demo.
+
 ## Quickstart
 
 **1. Write your project idea to `prompt.md`:**
@@ -31,19 +46,21 @@ prompt.md
 150MW solar farm on brownfield land in West Texas
 ```
 
-**2. Start all services** (Terminal 1):
+**2. Open two terminal windows.** In the first terminal, start all services:
 
 ```bash
 bash start.sh sk-ant-...
 ```
 
-**3. Run the negotiation** (Terminal 2):
+Leave this terminal running — it hosts the agents and prints progress as each turn completes. Do not close it.
+
+**3. In your second terminal, run the negotiation:**
 
 ```bash
 python run_demo.py
 ```
 
-Progress is logged in Terminal 1 as each agent responds. Once all turns are complete, the full transcript is written to `transcript.md` in the project root.
+This sends your idea to the orchestrator and waits. When all turns are complete, the full transcript is printed here and written to `transcript.md` in the project root.
 
 ## Option B — Docker
 

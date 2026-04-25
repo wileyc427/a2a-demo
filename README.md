@@ -12,10 +12,14 @@ Solar Negotiation Orchestrator    (pipeline root — sequential, max 10 turns)
   └── Underwriter                 port 8002
 ```
 
+## Cost warning
+
+Each demo run makes multiple API calls to Claude — one per turn, up to 10 turns. Based on real usage, **a single run costs approximately $0.09** using `claude-haiku-4-5`. Costs will be higher if you switch to a more capable model like Sonnet or Opus. These charges are billed directly to your Anthropic account. Monitor your usage at [console.anthropic.com](https://console.anthropic.com).
+
 ## Prerequisites
 
 - Python 3.10+ — check with `python3 --version`
-- An Anthropic API key
+- An Anthropic API key — sign up at [console.anthropic.com](https://console.anthropic.com), then go to **API Keys** and click **Create Key**. Copy the key — it starts with `sk-ant-` and is only shown once.
 
 ## Quickstart
 
